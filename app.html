@@ -1406,51 +1406,54 @@ function updLotes(pre=''){
   if(haInput&&c?.hectareas&&!haInput.value) haInput.value=c.hectareas;
 }
 
-function addOTIns(){otIns.push({insumoId:'',cantidad:0,dosis:0});renderOTIns();}
+function addOTIns(){otIns.push({insumoId:'',cantidad:0,dosis:0,manual:false});renderOTIns();}
 
 function renderOTIns(){
   const el=document.getElementById('ot-ins-list');if(!el)return;
   if(!otIns.length){el.innerHTML='<p style="font-size:12px;color:var(--clay)">Sin insumos. Agregá los productos necesarios.</p>';
     document.getElementById('ot-stock-msg').innerHTML='';return;}
-  // Build options including ALL stock insumos + any custom ones already in the OT
-  const stockIds=new Set(DB.insumos.map(i=>i.id));
-  const extraOpts=otIns
-    .filter(it=>it.insumoId&&!stockIds.has(it.insumoId))
-    .map(it=>`<option value="${it.insumoId}">${it.insumoId}</option>`);
-  const opts=DB.insumos.map(i=>`<option value="${i.id}">${i.nombre} (stock: ${i.stock} ${i.unidad})</option>`).join('')
-    + extraOpts.join('');
+  const opts=DB.insumos.map(i=>`<option value="${i.id}">${i.nombre} (stock: ${i.stock} ${i.unidad})</option>`).join('');
   el.innerHTML=otIns.map((it,i)=>{
     const ins=DB.insumos.find(x=>x.id===it.insumoId);
     const ok=ins&&ins.stock>=it.cantidad;
-    const noStock=it.insumoId&&!ins; // product not in current stock list
-    const chip=noStock
+    const isManual=it.manual||false;
+    const chip=isManual
       ?`<span style="font-size:11px;color:var(--clay);font-weight:600">⚠ No está en stock actual</span>`
       :ins?(ok?`<span style="font-size:11px;color:var(--ok);font-weight:600">✓ Stock OK</span>`
         :`<span style="font-size:11px;color:var(--warn);font-weight:600">⚠ Falta ${(it.cantidad-(ins?.stock||0)).toFixed(2)} ${ins.unidad}</span>`):'';
-    return`<div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;flex-wrap:wrap">
-      <div class="fg" style="min-width:170px"><label>Insumo</label>
-        <select onchange="otIns[${i}].insumoId=this.value;renderOTIns()" style="width:100%">
-          <option value="">— Seleccionar —</option>${opts.replace(`value="${it.insumoId}"`,`value="${it.insumoId}" selected`)}
-        </select>
-        <input type="text" placeholder="O escribí el nombre del insumo..." value="${noStock?it.insumoId:''}"
-          style="margin-top:4px;border:1.5px solid #DDD;border-radius:5px;padding:4px 8px;font-size:11px;width:100%;box-sizing:border-box;${noStock?'':'display:none'}"
-          onchange="otIns[${i}].insumoId=this.value.trim();renderOTIns()">
+    return`<div style="background:#F9F9F9;border:1px solid #EEE;border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+        <div class="fg" style="min-width:200px">
+          <label>Insumo</label>
+          ${isManual
+            ? `<input type="text" value="${it.insumoId||''}" placeholder="Escribí el nombre del insumo..."
+                style="border:1.5px solid var(--sky);border-radius:5px;padding:6px 8px;font-size:13px;width:100%;box-sizing:border-box"
+                onchange="otIns[${i}].insumoId=this.value.trim();renderOTIns()">`
+            : `<select onchange="otIns[${i}].insumoId=this.value;renderOTIns()" style="width:100%">
+                <option value="">— Seleccionar —</option>${opts.replace(`value="${it.insumoId}"`,`value="${it.insumoId}" selected`)}
+              </select>`
+          }
+          <button type="button" onclick="otIns[${i}].manual=${!isManual};otIns[${i}].insumoId='';renderOTIns()"
+            style="margin-top:4px;font-size:11px;color:var(--sky);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">
+            ${isManual ? '← Volver al selector' : '✏ No está en la lista → escribir manualmente'}
+          </button>
+        </div>
+        <div class="fgsm"><label>Cant. total${ins?' ('+ins.unidad+')':''}</label>
+          <input type="number" value="${it.cantidad||''}" min="0" step="0.01" placeholder="0"
+            onchange="otIns[${i}].cantidad=parseFloat(this.value)||0;renderOTIns()">
+        </div>
+        <div class="fgsm"><label>Dosis/ha</label>
+          <input type="number" value="${it.dosis||''}" min="0" step="0.01" placeholder="0"
+            onchange="otIns[${i}].dosis=parseFloat(this.value)||0;renderOTIns()">
+        </div>
+        <div style="align-self:flex-end;padding-bottom:2px">${chip}</div>
+        <div style="align-self:flex-end"><button type="button" class="btn btn-warn btn-sm" onclick="otIns.splice(${i},1);renderOTIns()">✕</button></div>
       </div>
-      <div class="fgsm"><label>Cant. total${ins?' ('+ins.unidad+')':''}</label>
-        <input type="number" value="${it.cantidad||''}" min="0" step="0.01" placeholder="0"
-          onchange="otIns[${i}].cantidad=parseFloat(this.value)||0;renderOTIns()">
-      </div>
-      <div class="fgsm"><label>Dosis/ha${ins?' ('+ins.unidad+'/ha)':''}</label>
-        <input type="number" value="${it.dosis||''}" min="0" step="0.01" placeholder="0"
-          onchange="otIns[${i}].dosis=parseFloat(this.value)||0;renderOTIns()">
-      </div>
-      <div style="align-self:flex-end;padding-bottom:2px">${chip}</div>
-      <div style="align-self:flex-end"><button type="button" class="btn btn-warn btn-sm" onclick="otIns.splice(${i},1);renderOTIns()">✕</button></div>
     </div>`;
   }).join('');
   const falt=otIns.filter(it=>{if(!it.insumoId)return false;const ins=DB.insumos.find(x=>x.id===it.insumoId);return !ins||ins.stock<it.cantidad;});
   document.getElementById('ot-stock-msg').innerHTML=falt.length
-    ?`<div class="alert awarn"><strong>⚠ Stock insuficiente para ${falt.length} insumo(s).</strong> La OT quedará en estado "Sin stock" y se agregará a la lista de cotización automáticamente.</div>`
+    ?`<div class="alert awarn"><strong>⚠ Stock insuficiente para ${falt.length} insumo(s).</strong> La OT quedará en estado "Sin stock" y se agregará a la lista de cotización.</div>`
     :otIns.length?`<div class="alert aok">✅ Stock disponible para todos los insumos.</div>`:'';
 }
 
