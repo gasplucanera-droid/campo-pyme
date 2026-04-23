@@ -739,30 +739,54 @@ async function syncToSheets(){
 }
 
 async function loadFromSheets(){
-  try{
-    const res=await fetch(GS_URL+'?v='+Date.now()); // cache bust
-    const text=await res.text();
-    if(!text||text==='{}')return false;
-    const remote=JSON.parse(text);
-    if(!remote.campos)return false;
-    Object.keys(remote).forEach(k=>{
-      if(!(k in DB)) return;
-      // Don't overwrite riegos with empty array from Sheets if we have seed data
-      if(k==='riegos' && (!remote[k]||remote[k].length===0)) return;
-      DB[k]=remote[k];
-    });
-    // Inject seed if still missing after Sheets load
-    if(!DB.riegos) DB.riegos=[];
-    if(!DB.riegos.some(r=>r.fuente==='agsense365-csv')){
-      const existingIds=new Set(DB.riegos.map(r=>r.id));
-      RIEGOS_SEED.forEach(r=>{if(!existingIds.has(r.id))DB.riegos.push({...r});});
-    }
-    localStorage.setItem('campoV4',JSON.stringify(DB)); // cache locally
-    return true;
-  }catch(e){
-    console.warn('Load from Sheets error:',e);
-    return false;
-  }
+  return new Promise((resolve)=>{
+    const cbName='_gsCallback_'+Date.now();
+    const script=document.createElement('script');
+    const timeout=setTimeout(()=>{
+      delete window[cbName];
+      document.body.removeChild(script);
+      // Fall back to localStorage
+      try{
+        const d=localStorage.getItem('campoV4');
+        if(d){const p=JSON.parse(d);Object.keys(p).forEach(k=>{if(k in DB)DB[k]=p[k];});}
+      }catch(e){}
+      resolve(DB.campos.length>0);
+    },8000);
+
+    window[cbName]=function(remote){
+      clearTimeout(timeout);
+      delete window[cbName];
+      try{document.body.removeChild(script);}catch(e){}
+      try{
+        if(!remote||!remote.campos){resolve(false);return;}
+        Object.keys(remote).forEach(k=>{
+          if(!(k in DB))return;
+          if(k==='riegos'&&(!remote[k]||remote[k].length===0))return;
+          DB[k]=remote[k];
+        });
+        if(!DB.riegos)DB.riegos=[];
+        if(!DB.riegos.some(r=>r.fuente==='agsense365-csv')){
+          const existingIds=new Set(DB.riegos.map(r=>r.id));
+          RIEGOS_SEED.forEach(r=>{if(!existingIds.has(r.id))DB.riegos.push({...r});});
+        }
+        localStorage.setItem('campoV4',JSON.stringify(DB));
+        resolve(true);
+      }catch(e){resolve(false);}
+    };
+
+    script.src=GS_URL+'?callback='+cbName+'&v='+Date.now();
+    script.onerror=()=>{
+      clearTimeout(timeout);
+      delete window[cbName];
+      try{document.body.removeChild(script);}catch(e){}
+      try{
+        const d=localStorage.getItem('campoV4');
+        if(d){const p=JSON.parse(d);Object.keys(p).forEach(k=>{if(k in DB)DB[k]=p[k];});}
+      }catch(e2){}
+      resolve(DB.campos.length>0);
+    };
+    document.body.appendChild(script);
+  });
 }
 
 function setSyncStatus(s){
