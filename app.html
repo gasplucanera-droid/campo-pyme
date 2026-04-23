@@ -878,9 +878,12 @@ async function initApp(){
   // ── STEP 4: Re-evaluate stock availability for all sin-stock OTs ──
   reCheckOTs();
 
-  // ── STEP 5: Save and push to Sheets ──
+  // ── STEP 5: Save locally always, but only push to Sheets if we added new seed data ──
   save();
-  await syncToSheets();
+  // Only sync if Sheets didn't load (first time) or if we injected seed riegos
+  if(!loaded || !DB.riegos.some(r=>r.fuente==='agsense365-csv')){
+    await syncToSheets();
+  }
 
   setSyncStatus('idle');
   if(overlay)overlay.style.display='none';
