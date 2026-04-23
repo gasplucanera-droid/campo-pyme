@@ -983,7 +983,10 @@ function checkStock(ot){
   const falt=[];
   (ot.insumos||[]).forEach(it=>{
     const ins=DB.insumos.find(i=>i.id===it.insumoId);
-    if(!ins||ins.stock<it.cantidad)falt.push({nombre:ins?ins.nombre:'?',disp:ins?ins.stock:0,nec:it.cantidad,uni:ins?ins.unidad:''});
+    // For manual insumos (not in DB), use insumoId as the display name
+    const nombre=ins?ins.nombre:(it.insumoId||'?');
+    const unidad=ins?ins.unidad:(it.unidad||'');
+    if(!ins||ins.stock<it.cantidad)falt.push({nombre,disp:ins?ins.stock:0,nec:it.cantidad,uni:unidad,tipo:ins?ins.tipo:'—'});
   });
   return{ok:falt.length===0,falt};
 }
@@ -1428,7 +1431,10 @@ function renderOTIns(){
           ${isManual
             ? `<input type="text" value="${it.insumoId||''}" placeholder="Escribí el nombre del insumo..."
                 style="border:1.5px solid var(--sky);border-radius:5px;padding:6px 8px;font-size:13px;width:100%;box-sizing:border-box"
-                onchange="otIns[${i}].insumoId=this.value.trim();renderOTIns()">`
+                onchange="otIns[${i}].insumoId=this.value.trim();renderOTIns()">
+               <input type="text" value="${it.unidad||''}" placeholder="Unidad (lts, kg, paq...)"
+                style="margin-top:4px;border:1.5px solid #DDD;border-radius:5px;padding:4px 8px;font-size:11px;width:100%;box-sizing:border-box"
+                onchange="otIns[${i}].unidad=this.value.trim()">`
             : `<select onchange="otIns[${i}].insumoId=this.value;renderOTIns()" style="width:100%">
                 <option value="">— Seleccionar —</option>${opts.replace(`value="${it.insumoId}"`,`value="${it.insumoId}" selected`)}
               </select>`
@@ -1440,11 +1446,17 @@ function renderOTIns(){
         </div>
         <div class="fgsm"><label>Cant. total${ins?' ('+ins.unidad+')':''}</label>
           <input type="number" value="${it.cantidad||''}" min="0" step="0.01" placeholder="0"
-            onchange="otIns[${i}].cantidad=parseFloat(this.value)||0;renderOTIns()">
+            onchange="otIns[${i}].cantidad=parseFloat(this.value)||0;
+              const ha${i}=parseFloat(document.getElementById('m-ha')?.value)||0;
+              if(ha${i}>0){otIns[${i}].dosis=Math.round((otIns[${i}].cantidad/ha${i})*1000)/1000;}
+              renderOTIns()">
         </div>
         <div class="fgsm"><label>Dosis/ha</label>
           <input type="number" value="${it.dosis||''}" min="0" step="0.01" placeholder="0"
-            onchange="otIns[${i}].dosis=parseFloat(this.value)||0;renderOTIns()">
+            onchange="otIns[${i}].dosis=parseFloat(this.value)||0;
+              const ha${i}b=parseFloat(document.getElementById('m-ha')?.value)||0;
+              if(ha${i}b>0){otIns[${i}].cantidad=Math.round((otIns[${i}].dosis*ha${i}b)*100)/100;}
+              renderOTIns()">
         </div>
         <div style="align-self:flex-end;padding-bottom:2px">${chip}</div>
         <div style="align-self:flex-end"><button type="button" class="btn btn-warn btn-sm" onclick="otIns.splice(${i},1);renderOTIns()">✕</button></div>
