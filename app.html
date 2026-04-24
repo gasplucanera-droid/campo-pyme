@@ -401,14 +401,65 @@ tr:hover td{background:#FAFDF7}
 
     <!-- REMITO -->
     <div id="sec-remito" class="sec">
-      <h2>📷 Escáner de Remitos</h2>
-      <p style="color:var(--clay);margin-bottom:16px;font-size:13px">Fotografiá un remito para ingresar stock automáticamente.</p>
-      <div class="card">
+      <div class="sechdr">
+        <h2>📷 Remitos</h2>
+        <button class="btn btn-primary" onclick="importarNotion()">📋 Importar desde Notion</button>
+      </div>
+      <p style="color:var(--clay);margin-bottom:16px;font-size:13px">Importá remitos automáticamente desde Notion o subí una foto para analizarla.</p>
+
+      <!-- Notion import panel -->
+      <div id="notion-panel" class="card" style="display:none;border:2px solid var(--sky)">
+        <div class="sechdr" style="margin-bottom:10px">
+          <h3 style="margin:0">📋 Importar desde Notion</h3>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('notion-panel').style.display='none'">✕</button>
+        </div>
+        <div id="notion-loading" style="text-align:center;padding:20px;display:none">
+          <span style="font-size:28px">🌀</span>
+          <div style="margin-top:8px;font-size:13px;color:var(--soil)">Consultando Notion...</div>
+        </div>
+        <div id="notion-error" class="alert awarn" style="display:none"></div>
+        <div id="notion-results" style="display:none">
+          <div style="font-size:13px;font-weight:600;color:var(--soil);margin-bottom:8px" id="notion-summary"></div>
+          <div class="twrap">
+            <table><thead><tr><th>✓</th><th>Artículo</th><th>Proveedor</th><th>Cantidad</th><th>Unidad</th><th>Remito</th><th>Fecha</th><th>Insumo sistema</th></tr></thead>
+            <tbody id="notion-tbody"></tbody></table>
+          </div>
+          <div style="margin-top:12px;display:flex;justify-content:flex-end">
+            <button class="btn btn-ok" onclick="confirmarNotion()">✓ Actualizar stock</button>
+          </div>
+        </div>
+      </div>
+      <!-- Manual entry -->
+      <div class="card" style="margin-top:14px">
+        <div class="sechdr" style="margin-bottom:12px">
+          <h3 style="margin:0">✏️ Carga manual de stock</h3>
+          <button class="btn btn-ok btn-sm" onclick="confirmarRemitoManual()">✓ Agregar al stock</button>
+        </div>
+        <div id="manual-rows">
+          <div class="fr" style="gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:flex-end">
+            <div class="fg" style="min-width:160px"><label>Insumo</label>
+              <select id="manual-ins-0" style="width:100%">
+                <option value="">— Seleccionar —</option>
+              </select>
+            </div>
+            <div class="fgsm"><label>Cantidad</label><input type="number" id="manual-cant-0" min="0" step="0.01" placeholder="0"></div>
+            <div class="fgsm"><label>Proveedor</label><input type="text" id="manual-prov-0" placeholder="Opcional"></div>
+            <div class="fgsm"><label>N° Remito</label><input type="text" id="manual-rem-0" placeholder="Opcional"></div>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="addManualRow()" style="margin-top:4px">+ Agregar fila</button>
+      </div>
+
+      <!-- Photo scanner -->
+      <div class="card" style="margin-top:14px">
+        <h3 style="margin-bottom:12px">📷 Escanear foto de remito</h3>
+        <p style="font-size:12px;color:var(--clay);margin-bottom:12px">Fotografiá un remito para ingresar stock automáticamente con IA.</p>
         <div class="dz" id="remito-dz" onclick="document.getElementById('remito-file').click()">
           <div style="font-size:42px;margin-bottom:8px">📄</div>
           <div style="font-size:15px;font-weight:600;color:var(--sky)">Subir foto del remito</div>
           <div style="font-size:12px;color:var(--clay);margin-top:3px">JPG, PNG — desde cámara o galería</div>
           <input type="file" id="remito-file" accept="image/*" capture="environment" style="display:none" onchange="onRemitoFile(event)">
+        </div>
         </div>
         <div id="remito-prev" style="display:none;margin-top:14px;text-align:center">
           <img id="remito-img" style="max-width:100%;max-height:260px;border-radius:8px;box-shadow:var(--shadow)">
@@ -972,6 +1023,7 @@ function go(sec){
   const btn=document.getElementById('nb-'+sec);if(btn)btn.classList.add('active');
   ({dashboard:renderDash,ot:renderOT,operario:renderOperario,stock:renderStock,
     riego:renderRiego,cotizar:renderCotizar,historial:renderHistorial,config:renderConfig}[sec]||Function)();
+  if(sec==='remito') populateManualSelects();
 }
 window.addEventListener('offline',()=>document.getElementById('offline-pill').classList.add('on'));
 window.addEventListener('online',()=>document.getElementById('offline-pill').classList.remove('on'));
@@ -2108,22 +2160,237 @@ function resetRemito(){
   document.getElementById('remito-results').style.display='none';document.getElementById('remito-ok').style.display='none';
   document.getElementById('remito-loading').style.display='none';
 }
-// ── Anthropic API via Apps Script proxy ──
-async function callAI(body){
-  // Send request via img tag (fire-and-forget) + store result in Sheets
-  // Then poll Sheets API for the result
-  const jobId='job_'+Date.now();
-  
-  // Step 1: Send job to Apps Script via img tag
-  await new Promise((resolve)=>{
-    const img=new Image();
-    img.onload=img.onerror=()=>resolve();
-    const payload=encodeURIComponent(JSON.stringify({jobId,...body}));
-    img.src=GS_URL+'?action=anthropic&jobId='+jobId+'&body='+payload+'&v='+Date.now();
-    setTimeout(resolve,3000);
+// ── Manual stock entry ──
+let manualRowCount=1;
+function populateManualSelects(){
+  const opts='<option value="">— Seleccionar —</option>'+DB.insumos.map(i=>`<option value="${i.id}">${i.nombre} (${i.unidad})</option>`).join('');
+  document.querySelectorAll('[id^="manual-ins-"]').forEach(sel=>{sel.innerHTML=opts;});
+}
+function addManualRow(){
+  const i=manualRowCount++;
+  const div=document.createElement('div');
+  div.className='fr';
+  div.style.cssText='gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:flex-end';
+  div.innerHTML=`
+    <div class="fg" style="min-width:160px"><label>Insumo</label>
+      <select id="manual-ins-${i}" style="width:100%">
+        <option value="">— Seleccionar —</option>
+        ${DB.insumos.map(ins=>`<option value="${ins.id}">${ins.nombre} (${ins.unidad})</option>`).join('')}
+      </select>
+    </div>
+    <div class="fgsm"><label>Cantidad</label><input type="number" id="manual-cant-${i}" min="0" step="0.01" placeholder="0"></div>
+    <div class="fgsm"><label>Proveedor</label><input type="text" id="manual-prov-${i}" placeholder="Opcional"></div>
+    <div class="fgsm"><label>N° Remito</label><input type="text" id="manual-rem-${i}" placeholder="Opcional"></div>
+    <div style="align-self:flex-end"><button class="btn btn-warn btn-sm" onclick="this.closest('.fr').remove()">✕</button></div>`;
+  document.getElementById('manual-rows').appendChild(div);
+}
+function confirmarRemitoManual(){
+  let count=0;
+  document.querySelectorAll('[id^="manual-ins-"]').forEach((sel,idx)=>{
+    const insId=sel.value;
+    if(!insId)return;
+    const cantEl=document.getElementById(sel.id.replace('ins','cant'));
+    const provEl=document.getElementById(sel.id.replace('ins','prov'));
+    const remEl=document.getElementById(sel.id.replace('ins','rem'));
+    const cant=parseFloat(cantEl?.value)||0;
+    if(cant<=0)return;
+    const ins=DB.insumos.find(i=>i.id===insId);
+    if(!ins)return;
+    ins.stock+=cant;
+    DB.movimientos.push({
+      id:uid(),fecha:today(),insumoId:ins.id,
+      tipo:'entrada',cantidad:cant,
+      nota:`Manual · ${provEl?.value||'Sin proveedor'}${remEl?.value?' · Remito '+remEl.value:''}`
+    });
+    cantEl.value='';
+    count++;
   });
+  if(!count){alert('Completá al menos un insumo con cantidad.');return;}
+  reCheckOTs();save();renderStock();
+  alert(`✅ ${count} insumo(s) agregados al stock.`);
+}
 
-  // Step 2: Poll Sheets for result (Apps Script saves result to sheet 'ai_results')
+// ── Notion Integration ──
+const NOTION_TOKEN='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';
+const NOTION_DB='23322523-eef3-81b7-a96e-0003b60ee0c3';
+let notionItems=[];
+
+async function importarNotion(){
+  const panel=document.getElementById('notion-panel');
+  panel.style.display='block';
+  panel.scrollIntoView({behavior:'smooth'});
+  const loading=document.getElementById('notion-loading');
+  const errEl=document.getElementById('notion-error');
+  const resEl=document.getElementById('notion-results');
+  loading.style.display='block';
+  errEl.style.display='none';
+  resEl.style.display='none';
+  notionItems=[];
+
+  try{
+    // Query Notion via Apps Script proxy (to avoid CORS)
+    const jobId='notion_'+Date.now();
+    const notionBody={
+      database_id:NOTION_DB,
+      sorts:[{property:'Fecha',direction:'descending'}],
+      page_size:50
+    };
+
+    // Send to Apps Script proxy
+    fetch(GS_URL+'?action=notion&jobId='+jobId,{
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({token:NOTION_TOKEN,body:notionBody})
+    }).catch(()=>{});
+
+    // Poll Sheets for result
+    await new Promise(r=>setTimeout(r,2000));
+    const sheetUrl=`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/notion_results!A1?key=${SHEETS_API_KEY}`;
+    let data=null;
+    for(let i=0;i<15;i++){
+      await new Promise(r=>setTimeout(r,2000));
+      try{
+        const res=await fetch(sheetUrl);
+        if(res.ok){
+          const d=await res.json();
+          const raw=d.values?.[0]?.[0];
+          if(raw){
+            const result=JSON.parse(raw);
+            if(result.jobId===jobId){data=result.response;break;}
+          }
+        }
+      }catch(e){}
+    }
+
+    if(!data) throw new Error('No se pudo conectar con Notion');
+
+    // Parse Notion results
+    const imported=new Set((DB.remitoImportados||[]));
+    const rows=data.results||[];
+
+    rows.forEach((row,i)=>{
+      const props=row.properties||{};
+      const getNombre=()=>{
+        const t=props['Articulo']||props['Artículo']||props['Article']||props['nombre']||props['Nombre']||{};
+        return t.title?.[0]?.plain_text||t.rich_text?.[0]?.plain_text||'';
+      };
+      const getCantidad=()=>{
+        const c=props['Cantidad']||props['cantidad']||props['Quantity']||{};
+        return c.number||0;
+      };
+      const getUnidad=()=>{
+        const u=props['Unidad de Medida']||props['Unidad']||props['unidad']||props['Unit']||{};
+        return u.select?.name||u.rich_text?.[0]?.plain_text||'lts';
+      };
+      const getProveedor=()=>{
+        const p=props['Proveedor']||props['proveedor']||props['Supplier']||{};
+        return p.select?.name||p.rich_text?.[0]?.plain_text||p.title?.[0]?.plain_text||'';
+      };
+      const getRemito=()=>{
+        const r=props['Nro Remito']||props['Remito']||props['remito']||props['Invoice']||{};
+        return r.rich_text?.[0]?.plain_text||r.title?.[0]?.plain_text||r.number?.toString()||'';
+      };
+      const getFecha=()=>{
+        const f=props['Fecha']||props['fecha']||props['Date']||{};
+        return f.date?.start||'';
+      };
+
+      const nombre=getNombre();
+      const cantidad=getCantidad();
+      const nroRemito=getRemito();
+      if(!nombre||cantidad<=0) return;
+
+      // Find matching insumo in stock
+      const matchIns=DB.insumos.find(ins=>
+        ins.nombre.toLowerCase().includes(nombre.toLowerCase().substring(0,8))||
+        nombre.toLowerCase().includes(ins.nombre.toLowerCase().substring(0,8))
+      );
+
+      notionItems.push({
+        id:'n'+i, incluir:!imported.has(nroRemito+'_'+nombre),
+        nombre, cantidad, unidad:getUnidad(),
+        proveedor:getProveedor(), nroRemito, fecha:getFecha(),
+        matchId:matchIns?.id||'', matchNombre:matchIns?.nombre||''
+      });
+    });
+
+    loading.style.display='none';
+    if(!notionItems.length){
+      errEl.textContent='No se encontraron remitos en Notion.';
+      errEl.style.display='block';
+      return;
+    }
+
+    const nuevos=notionItems.filter(i=>i.incluir).length;
+    document.getElementById('notion-summary').textContent=
+      `${notionItems.length} artículos encontrados · ${nuevos} nuevos para importar`;
+    renderNotionTbl();
+    resEl.style.display='block';
+
+  }catch(e){
+    loading.style.display='none';
+    errEl.textContent='Error: '+e.message;
+    errEl.style.display='block';
+  }
+}
+
+function renderNotionTbl(){
+  const opts='<option value="">— Sin match —</option>'+DB.insumos.map(i=>`<option value="${i.id}">${i.nombre}</option>`).join('');
+  document.getElementById('notion-tbody').innerHTML=notionItems.map((it,i)=>{
+    const selOpts=opts.replace(`value="${it.matchId}"`,`value="${it.matchId}" selected`);
+    return`<tr style="${it.incluir?'':'opacity:0.5'}">
+      <td><input type="checkbox" ${it.incluir?'checked':''} onchange="notionItems[${i}].incluir=this.checked;renderNotionTbl()" style="width:16px;height:16px;accent-color:var(--sky)"></td>
+      <td style="font-size:12px;font-weight:600">${it.nombre}</td>
+      <td style="font-size:11px;color:var(--clay)">${it.proveedor}</td>
+      <td style="font-weight:600">${it.cantidad}</td>
+      <td style="font-size:12px">${it.unidad}</td>
+      <td style="font-size:11px;color:var(--clay)">${it.nroRemito}</td>
+      <td style="font-size:11px;color:var(--clay)">${it.fecha}</td>
+      <td><select onchange="notionItems[${i}].matchId=this.value" style="font-size:11px;border:1px solid #DDD;border-radius:4px;padding:3px">${selOpts}</select></td>
+    </tr>`;
+  }).join('');
+}
+
+function confirmarNotion(){
+  const sel=notionItems.filter(it=>it.incluir&&it.matchId);
+  if(!sel.length){alert('No hay artículos con insumo del sistema seleccionado.');return;}
+  if(!DB.remitoImportados)DB.remitoImportados=[];
+  sel.forEach(it=>{
+    const ins=DB.insumos.find(i=>i.id===it.matchId);
+    if(!ins)return;
+    ins.stock+=it.cantidad;
+    DB.movimientos.push({
+      id:uid(),fecha:it.fecha||today(),insumoId:ins.id,
+      tipo:'entrada',cantidad:it.cantidad,
+      nota:`Remito ${it.nroRemito} · ${it.proveedor}`
+    });
+    DB.remitoImportados.push(it.nroRemito+'_'+it.nombre);
+  });
+  reCheckOTs();save();
+  document.getElementById('notion-panel').style.display='none';
+  renderStock();
+  alert(`✅ Stock actualizado con ${sel.length} artículo(s) de Notion.`);
+}
+
+
+async function callAI(body){
+  const jobId='job_'+Date.now();
+
+  // Step 1: POST to Apps Script with no-cors (fire-and-forget, Apps Script receives it)
+  try{
+    fetch(GS_URL+'?action=anthropic&jobId='+jobId,{
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify(body)
+    });
+  }catch(e){}
+
+  // Wait a moment for Apps Script to start processing
+  await new Promise(r=>setTimeout(r,2000));
+
+  // Step 2: Poll Sheets API for result (up to 30s)
   const sheetUrl=`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/ai_results!A1?key=${SHEETS_API_KEY}`;
   for(let i=0;i<15;i++){
     await new Promise(r=>setTimeout(r,2000));
