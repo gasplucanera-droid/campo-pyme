@@ -747,10 +747,17 @@ async function loadFromSheets(){
       try{document.body.removeChild(script);}catch(e){}
       try{
         if(!remote||!remote.campos){resolve(false);return;}
-        // Only load volatile fields — insumos always come from SEED, riegos from CSV
+        // Smart merge: only update from Sheets if it has MORE data than local
         const volatileKeys=['campos','ots','movimientos','pivots','pins','cotExtra','historial'];
         volatileKeys.forEach(k=>{
-          if(remote[k]!==undefined) DB[k]=remote[k];
+          if(remote[k]===undefined) return;
+          // For arrays: only replace if Sheets has more items than local
+          if(Array.isArray(remote[k])&&Array.isArray(DB[k])){
+            if(remote[k].length>=DB[k].length) DB[k]=remote[k];
+            // If local has more, keep local (user added stuff not yet synced)
+          } else {
+            DB[k]=remote[k];
+          }
         });
         if(!DB.riegos)DB.riegos=[];
         if(!DB.riegos.some(r=>r.fuente==='agsense365-csv')){
@@ -812,16 +819,23 @@ function load(){
 }
 
 async function initApp(){
-  // Show loading overlay
   const overlay=document.getElementById('loading-overlay');
   if(overlay)overlay.style.display='flex';
   setSyncStatus('loading');
 
-  // Try to load from Google Sheets
+  // ── STEP 0: Load localStorage FIRST (instant, preserves user's work) ──
+  try{
+    const local=localStorage.getItem('campoV4');
+    if(local){
+      const p=JSON.parse(local);
+      Object.keys(p).forEach(k=>{if(k in DB)DB[k]=p[k];});
+    }
+  }catch(e){}
+
+  // ── STEP 1: Merge from Sheets (only updates campos/ots/etc if Sheets has newer data) ──
   const loaded=await loadFromSheets();
 
   if(!loaded){
-    // First time ever — seed campos and pivots
     if(!DB.campos.length){
       DB.campos=SEED.campos;
       DB.pivots=SEED.pivots;
