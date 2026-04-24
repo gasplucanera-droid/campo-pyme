@@ -706,13 +706,24 @@ function scheduleSync(){
 async function syncToSheets(){
   setSyncStatus('saving');
   try{
-    // Use script tag injection to send data via GET — bypasses CORS completely
-    const payload=encodeURIComponent(JSON.stringify(DB));
-    const script=document.createElement('script');
-    script.src=GS_URL+'?action=save&data='+payload+'&v='+Date.now();
-    script.onload=()=>{setSyncStatus('saved');setTimeout(()=>setSyncStatus('idle'),3000);document.body.removeChild(script);};
-    script.onerror=()=>{setSyncStatus('saved');setTimeout(()=>setSyncStatus('idle'),3000);try{document.body.removeChild(script);}catch(e){}};
-    document.body.appendChild(script);
+    // Exclude riegos — too large for GET URL (352 records = 62KB)
+    // Riegos are seeded from CSV and saved separately when needed
+    const dbLight={...DB};
+    delete dbLight.riegos;
+    delete dbLight._riegosSeedLoaded;
+    const payload=encodeURIComponent(JSON.stringify(dbLight));
+
+    await new Promise((resolve)=>{
+      const cb='_save_'+Date.now();
+      const script=document.createElement('script');
+      window[cb]=()=>{delete window[cb];try{document.body.removeChild(script);}catch(e){}resolve();};
+      script.onerror=()=>{delete window[cb];try{document.body.removeChild(script);}catch(e){}resolve();};
+      script.src=GS_URL+'?action=save&data='+payload+'&callback='+cb+'&v='+Date.now();
+      document.body.appendChild(script);
+    });
+
+    setSyncStatus('saved');
+    setTimeout(()=>setSyncStatus('idle'),3000);
   }catch(e){
     setSyncStatus('error');
     console.warn('Sync error:',e);
