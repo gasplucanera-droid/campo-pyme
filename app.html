@@ -703,6 +703,9 @@ function scheduleSync(){
   syncTimeout=setTimeout(syncToSheets,1500); // debounce 1.5s
 }
 
+const SHEETS_API_KEY='AIzaSyD49IZ2rMBEk4n3b35HY6C0BqTJPkUrA7Y';
+const SHEET_ID='13zTUy9IfPyOgi6dZBtbjsb4acEjtrmQAjz7zbVNPvK0';
+
 async function syncToSheets(){
   setSyncStatus('saving');
   try{
@@ -713,10 +716,26 @@ async function syncToSheets(){
     const json=JSON.stringify(toSave);
     console.log('Sync payload:',json.length,'chars');
 
-    // sendBeacon: designed for background data sending, no CORS/CORB issues
-    const blob=new Blob([json],{type:'text/plain'});
-    const sent=navigator.sendBeacon(GS_URL, blob);
-    console.log('sendBeacon result:',sent);
+    // Write via Apps Script GET with callback (proven JSONP approach)
+    await new Promise((resolve)=>{
+      const cb='_save_'+Date.now();
+      const script=document.createElement('script');
+      window[cb]=(r)=>{
+        delete window[cb];
+        try{document.body.removeChild(script);}catch(e){}
+        console.log('Save response:',r);
+        resolve();
+      };
+      script.onerror=()=>{
+        delete window[cb];
+        try{document.body.removeChild(script);}catch(e){}
+        resolve();
+      };
+      script.src=GS_URL+'?action=save&callback='+cb+'&data='+encodeURIComponent(json)+'&v='+Date.now();
+      document.body.appendChild(script);
+      // Timeout after 10s
+      setTimeout(()=>{if(window[cb]){delete window[cb];try{document.body.removeChild(script);}catch(e){}resolve();}},10000);
+    });
 
     setSyncStatus('saved');
     setTimeout(()=>setSyncStatus('idle'),3000);
@@ -727,61 +746,43 @@ async function syncToSheets(){
 }
 
 async function loadFromSheets(){
-  return new Promise((resolve)=>{
-    const cbName='_gsCallback_'+Date.now();
-    const script=document.createElement('script');
-    const timeout=setTimeout(()=>{
-      delete window[cbName];
-      document.body.removeChild(script);
-      // Fall back to localStorage
-      try{
-        const d=localStorage.getItem('campoV4');
-        if(d){const p=JSON.parse(d);Object.keys(p).forEach(k=>{if(k in DB)DB[k]=p[k];});}
-      }catch(e){}
-      resolve(DB.campos.length>0);
-    },8000);
+  try{
+    // Read via Sheets API v4 (public sheet, no auth needed)
+    const url=`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/data!A1?key=${SHEETS_API_KEY}`;
+    const res=await fetch(url);
+    if(!res.ok){throw new Error('Sheets API '+res.status);}
+    const data=await res.json();
+    const raw=data.values?.[0]?.[0];
+    if(!raw){return false;}
+    const remote=JSON.parse(raw);
+    if(!remote.campos){return false;}
 
-    window[cbName]=function(remote){
-      clearTimeout(timeout);
-      delete window[cbName];
-      try{document.body.removeChild(script);}catch(e){}
-      try{
-        if(!remote||!remote.campos){resolve(false);return;}
-        // Smart merge: only update from Sheets if it has MORE data than local
-        const volatileKeys=['campos','ots','movimientos','pivots','pins','cotExtra','historial'];
-        volatileKeys.forEach(k=>{
-          if(remote[k]===undefined) return;
-          // For arrays: only replace if Sheets has more items than local
-          if(Array.isArray(remote[k])&&Array.isArray(DB[k])){
-            if(remote[k].length>=DB[k].length) DB[k]=remote[k];
-            // If local has more, keep local (user added stuff not yet synced)
-          } else {
-            DB[k]=remote[k];
-          }
-        });
-        if(!DB.riegos)DB.riegos=[];
-        if(!DB.riegos.some(r=>r.fuente==='agsense365-csv')){
-          const existingIds=new Set(DB.riegos.map(r=>r.id));
-          RIEGOS_SEED.forEach(r=>{if(!existingIds.has(r.id))DB.riegos.push({...r});});
-        }
-        localStorage.setItem('campoV4',JSON.stringify(DB));
-        resolve(true);
-      }catch(e){resolve(false);}
-    };
-
-    script.src=GS_URL+'?callback='+cbName+'&v='+Date.now();
-    script.onerror=()=>{
-      clearTimeout(timeout);
-      delete window[cbName];
-      try{document.body.removeChild(script);}catch(e){}
-      try{
-        const d=localStorage.getItem('campoV4');
-        if(d){const p=JSON.parse(d);Object.keys(p).forEach(k=>{if(k in DB)DB[k]=p[k];});}
-      }catch(e2){}
-      resolve(DB.campos.length>0);
-    };
-    document.body.appendChild(script);
-  });
+    // Smart merge: keep local if it has more data
+    const volatileKeys=['campos','ots','movimientos','pivots','pins','cotExtra','historial'];
+    volatileKeys.forEach(k=>{
+      if(remote[k]===undefined)return;
+      if(Array.isArray(remote[k])&&Array.isArray(DB[k])){
+        if(remote[k].length>=DB[k].length) DB[k]=remote[k];
+      } else {
+        DB[k]=remote[k];
+      }
+    });
+    if(!DB.riegos)DB.riegos=[];
+    if(!DB.riegos.some(r=>r.fuente==='agsense365-csv')){
+      const existingIds=new Set(DB.riegos.map(r=>r.id));
+      RIEGOS_SEED.forEach(r=>{if(!existingIds.has(r.id))DB.riegos.push({...r});});
+    }
+    localStorage.setItem('campoV4',JSON.stringify(DB));
+    return true;
+  }catch(e){
+    console.warn('Load error:',e);
+    // Fall back to localStorage
+    try{
+      const d=localStorage.getItem('campoV4');
+      if(d){const p=JSON.parse(d);Object.keys(p).forEach(k=>{if(k in DB)DB[k]=p[k];});}
+    }catch(e2){}
+    return DB.campos.length>0;
+  }
 }
 
 function setSyncStatus(s){
