@@ -706,12 +706,19 @@ function scheduleSync(){
 async function syncToSheets(){
   setSyncStatus('saving');
   try{
-    // Exclude riegos — too large for GET URL (352 records = 62KB)
-    // Riegos are seeded from CSV and saved separately when needed
-    const dbLight={...DB};
-    delete dbLight.riegos;
-    delete dbLight._riegosSeedLoaded;
-    const payload=encodeURIComponent(JSON.stringify(dbLight));
+    // Only save volatile data — exclude seed data that's always reset on load
+    // Insumos stock is reset from SEED, riegos from CSV — don't save them
+    const toSave={
+      campos: DB.campos,           // save: user edits mapsLink, lotes
+      ots: DB.ots,                 // save: core data
+      movimientos: DB.movimientos, // save: stock movements
+      pivots: DB.pivots,           // save: pivot config
+      pins: DB.pins,               // save: PINs
+      cotExtra: DB.cotExtra,       // save: extra cotizar items
+      historial: DB.historial,     // save: campaign history
+    };
+    const payload=encodeURIComponent(JSON.stringify(toSave));
+    console.log('Sync payload size:', payload.length, 'chars');
 
     await new Promise((resolve)=>{
       const cb='_save_'+Date.now();
@@ -751,10 +758,10 @@ async function loadFromSheets(){
       try{document.body.removeChild(script);}catch(e){}
       try{
         if(!remote||!remote.campos){resolve(false);return;}
-        Object.keys(remote).forEach(k=>{
-          if(!(k in DB))return;
-          if(k==='riegos'&&(!remote[k]||remote[k].length===0))return;
-          DB[k]=remote[k];
+        // Only load volatile fields — insumos always come from SEED, riegos from CSV
+        const volatileKeys=['campos','ots','movimientos','pivots','pins','cotExtra','historial'];
+        volatileKeys.forEach(k=>{
+          if(remote[k]!==undefined) DB[k]=remote[k];
         });
         if(!DB.riegos)DB.riegos=[];
         if(!DB.riegos.some(r=>r.fuente==='agsense365-csv')){
