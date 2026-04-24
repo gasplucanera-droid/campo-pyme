@@ -716,25 +716,14 @@ async function syncToSheets(){
     const json=JSON.stringify(toSave);
     console.log('Sync payload:',json.length,'chars');
 
-    // Write via Apps Script GET with callback (proven JSONP approach)
+    // Write via img tag — bypasses CORB (browsers don't block img cross-origin)
+    // Apps Script receives the GET and saves data regardless of response type
     await new Promise((resolve)=>{
-      const cb='_save_'+Date.now();
-      const script=document.createElement('script');
-      window[cb]=(r)=>{
-        delete window[cb];
-        try{document.body.removeChild(script);}catch(e){}
-        console.log('Save response:',r);
-        resolve();
-      };
-      script.onerror=()=>{
-        delete window[cb];
-        try{document.body.removeChild(script);}catch(e){}
-        resolve();
-      };
-      script.src=GS_URL+'?action=save&callback='+cb+'&data='+encodeURIComponent(json)+'&v='+Date.now();
-      document.body.appendChild(script);
-      // Timeout after 10s
-      setTimeout(()=>{if(window[cb]){delete window[cb];try{document.body.removeChild(script);}catch(e){}resolve();}},10000);
+      const img=new Image();
+      img.onload=()=>resolve();
+      img.onerror=()=>resolve(); // always resolve — Apps Script saved even if img fails
+      img.src=GS_URL+'?action=save&data='+encodeURIComponent(json)+'&v='+Date.now();
+      setTimeout(resolve, 5000); // timeout fallback
     });
 
     setSyncStatus('saved');
@@ -2036,15 +2025,13 @@ async function analizarSense(){
   document.getElementById('btn-sense').disabled=true;
   const pn=AGSENSE_PIVOTS.map(p=>p.nombre).join(', ');
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:[
-        {type:'image',source:{type:'base64',media_type:'image/jpeg',data:sB64}},
-        {type:'text',text:`Analizá esta imagen de Valley Sense 365 / AgSense 365.
+    const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:[
+      {type:'image',source:{type:'base64',media_type:'image/jpeg',data:sB64}},
+      {type:'text',text:`Analizá esta imagen de Valley Sense 365 / AgSense 365.
 Pivots conocidos: ${pn}.
 Extraé todos los eventos de riego visibles. Respondé SOLO con JSON sin markdown:
 {"registros":[{"fecha":"YYYY-MM-DD","pivot":"nombre del pivot","mm":0,"velocidad":0,"duracion":""}]}`}
-      ]}]})});
-    const d=await res.json();
+    ]}]});
     const raw=d.content?.find(b=>b.type==='text')?.text||'';
     const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
     sItems=(parsed.registros||[]).map((r,i)=>{
@@ -2121,6 +2108,31 @@ function resetRemito(){
   document.getElementById('remito-results').style.display='none';document.getElementById('remito-ok').style.display='none';
   document.getElementById('remito-loading').style.display='none';
 }
+// ── Anthropic API via Apps Script proxy (avoids CORS) ──
+async function callAI(body){
+  return new Promise((resolve,reject)=>{
+    const cb='_ai_'+Date.now();
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{
+      delete window[cb];try{document.body.removeChild(script);}catch(e){}
+      reject(new Error('Timeout'));
+    },30000);
+    window[cb]=(data)=>{
+      clearTimeout(timer);delete window[cb];
+      try{document.body.removeChild(script);}catch(e){}
+      resolve(data);
+    };
+    script.onerror=()=>{
+      clearTimeout(timer);delete window[cb];
+      try{document.body.removeChild(script);}catch(e){}
+      reject(new Error('Script load error'));
+    };
+    const encoded=encodeURIComponent(JSON.stringify(body));
+    script.src=GS_URL+'?action=anthropic&callback='+cb+'&body='+encoded+'&v='+Date.now();
+    document.body.appendChild(script);
+  });
+}
+
 async function analizarRemito(){
   if(!rB64)return;
   document.getElementById('remito-loading').style.display='block';
@@ -2128,21 +2140,19 @@ async function analizarRemito(){
   document.getElementById('btn-remito').disabled=true;
   const ctx=DB.insumos.length?'Insumos en sistema: '+DB.insumos.map(i=>i.nombre).join(', '):'';
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:[
-        {type:'image',source:{type:'base64',media_type:'image/jpeg',data:rB64}},
-        {type:'text',text:`Analizá esta imagen de un remito o factura de insumos agropecuarios. ${ctx}
+    const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:[
+      {type:'image',source:{type:'base64',media_type:'image/jpeg',data:rB64}},
+      {type:'text',text:`Analizá esta imagen de un remito o factura de insumos agropecuarios. ${ctx}
 Extraé todos los productos. Solo JSON sin markdown:
 {"items":[{"nombre":"","cantidad":0,"unidad":"","match":""}],"texto_completo":"","proveedor":"","fecha":""}
 match = nombre exacto del insumo del sistema si coincide, sino "".`}
-      ]}]})});
-    const d=await res.json();
+    ]}]});
     const raw=d.content?.find(b=>b.type==='text')?.text||'';
     const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
     rItems=(parsed.items||[]).map((it,i)=>({...it,id:'ri'+i,incluir:true}));
     document.getElementById('remito-raw').textContent=(parsed.proveedor?'Proveedor: '+parsed.proveedor+'\n':'')+(parsed.fecha?'Fecha: '+parsed.fecha+'\n':'')+'\n'+(parsed.texto_completo||'');
     renderRemitoTbl();document.getElementById('remito-results').style.display='block';
-  }catch(err){alert('Error: '+err.message);}
+  }catch(err){alert('Error al analizar: '+err.message);}
   finally{document.getElementById('remito-loading').style.display='none';document.getElementById('btn-remito').disabled=false;}
 }
 function renderRemitoTbl(){
