@@ -2211,7 +2211,6 @@ function confirmarRemitoManual(){
 }
 
 // ── Notion Integration ──
-const NOTION_TOKEN='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';
 const NOTION_DB='23322523-eef3-81b7-a96e-0003b60ee0c3';
 let notionItems=[];
 
@@ -2228,24 +2227,18 @@ async function importarNotion(){
   notionItems=[];
 
   try{
-    // Query Notion via Apps Script proxy (to avoid CORS)
+    // Query Notion via Apps Script GET (no CORS issues)
     const jobId='notion_'+Date.now();
-    const notionBody={
-      database_id:NOTION_DB,
-      sorts:[{property:'Fecha',direction:'descending'}],
-      page_size:50
-    };
 
-    // Send to Apps Script proxy
-    fetch(GS_URL+'?action=notion&jobId='+jobId,{
-      method:'POST',
-      mode:'no-cors',
-      headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({token:NOTION_TOKEN,body:notionBody})
-    }).catch(()=>{});
+    // Trigger via img tag — Apps Script receives the GET and queries Notion
+    await new Promise((resolve)=>{
+      const img=new Image();
+      img.onload=img.onerror=()=>resolve();
+      img.src=GS_URL+'?action=notion&jobId='+jobId+'&db='+NOTION_DB+'&v='+Date.now();
+      setTimeout(resolve,3000);
+    });
 
     // Poll Sheets for result
-    await new Promise(r=>setTimeout(r,2000));
     const sheetUrl=`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/notion_results!A1?key=${SHEETS_API_KEY}`;
     let data=null;
     for(let i=0;i<15;i++){
