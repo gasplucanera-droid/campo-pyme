@@ -2108,29 +2108,38 @@ function resetRemito(){
   document.getElementById('remito-results').style.display='none';document.getElementById('remito-ok').style.display='none';
   document.getElementById('remito-loading').style.display='none';
 }
-// ── Anthropic API via Apps Script proxy (avoids CORS) ──
+// ── Anthropic API via Apps Script proxy ──
 async function callAI(body){
-  return new Promise((resolve,reject)=>{
-    const cb='_ai_'+Date.now();
-    const script=document.createElement('script');
-    const timer=setTimeout(()=>{
-      delete window[cb];try{document.body.removeChild(script);}catch(e){}
-      reject(new Error('Timeout'));
-    },30000);
-    window[cb]=(data)=>{
-      clearTimeout(timer);delete window[cb];
-      try{document.body.removeChild(script);}catch(e){}
-      resolve(data);
-    };
-    script.onerror=()=>{
-      clearTimeout(timer);delete window[cb];
-      try{document.body.removeChild(script);}catch(e){}
-      reject(new Error('Script load error'));
-    };
-    const encoded=encodeURIComponent(JSON.stringify(body));
-    script.src=GS_URL+'?action=anthropic&callback='+cb+'&body='+encoded+'&v='+Date.now();
-    document.body.appendChild(script);
+  // Send request via img tag (fire-and-forget) + store result in Sheets
+  // Then poll Sheets API for the result
+  const jobId='job_'+Date.now();
+  
+  // Step 1: Send job to Apps Script via img tag
+  await new Promise((resolve)=>{
+    const img=new Image();
+    img.onload=img.onerror=()=>resolve();
+    const payload=encodeURIComponent(JSON.stringify({jobId,...body}));
+    img.src=GS_URL+'?action=anthropic&jobId='+jobId+'&body='+payload+'&v='+Date.now();
+    setTimeout(resolve,3000);
   });
+
+  // Step 2: Poll Sheets for result (Apps Script saves result to sheet 'ai_results')
+  const sheetUrl=`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/ai_results!A1?key=${SHEETS_API_KEY}`;
+  for(let i=0;i<15;i++){
+    await new Promise(r=>setTimeout(r,2000));
+    try{
+      const res=await fetch(sheetUrl);
+      if(res.ok){
+        const data=await res.json();
+        const raw=data.values?.[0]?.[0];
+        if(raw){
+          const result=JSON.parse(raw);
+          if(result.jobId===jobId) return result.response;
+        }
+      }
+    }catch(e){}
+  }
+  throw new Error('Timeout esperando respuesta de IA');
 }
 
 async function analizarRemito(){
