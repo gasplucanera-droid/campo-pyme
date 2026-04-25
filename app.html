@@ -436,13 +436,27 @@ tr:hover td{background:#FAFDF7}
           <button class="btn btn-ok btn-sm" onclick="confirmarRemitoManual()">✓ Agregar al stock</button>
         </div>
         <div id="manual-rows">
-          <div class="fr" style="gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:flex-end">
-            <div class="fg" style="min-width:160px"><label>Insumo</label>
+          <div class="fr" style="gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:flex-end;background:#F9F9F9;border:1px solid #EEE;border-radius:8px;padding:10px">
+            <div class="fg" style="min-width:160px">
+              <label>Insumo</label>
               <select id="manual-ins-0" style="width:100%">
                 <option value="">— Seleccionar —</option>
               </select>
+              <input type="text" id="manual-ins-txt-0" placeholder="O escribí el nombre del producto..."
+                style="display:none;margin-top:4px;border:1.5px solid var(--sky);border-radius:5px;padding:6px 8px;font-size:13px;width:100%;box-sizing:border-box">
+              <button type="button" onclick="
+                const sel=document.getElementById('manual-ins-0');
+                const txt=document.getElementById('manual-ins-txt-0');
+                const isManual=txt.style.display!=='none';
+                sel.style.display=isManual?'':'none';
+                txt.style.display=isManual?'none':'block';
+                this.textContent=isManual?'✏ No está en la lista → escribir manualmente':'← Volver al selector';
+              " style="margin-top:4px;font-size:11px;color:var(--sky);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">
+                ✏ No está en la lista → escribir manualmente
+              </button>
             </div>
             <div class="fgsm"><label>Cantidad</label><input type="number" id="manual-cant-0" min="0" step="0.01" placeholder="0"></div>
+            <div class="fgsm"><label>Unidad</label><input type="text" id="manual-unit-0" placeholder="lts, kg..." value="lts"></div>
             <div class="fgsm"><label>Proveedor</label><input type="text" id="manual-prov-0" placeholder="Opcional"></div>
             <div class="fgsm"><label>N° Remito</label><input type="text" id="manual-rem-0" placeholder="Opcional"></div>
           </div>
@@ -1248,30 +1262,19 @@ function exportarOT(id){
   cx.fillStyle='#D4A853';
   cx.fillText(`#${ot.numero}  ·  ${tipoLabel(ot.tipo).toUpperCase()}`,20,100);
 
-  // Info grid
-  cx.font='500 12px sans-serif';
-  cx.fillStyle='#C8DEC9';
-  const col1=[
-    ['📍 Campo / Lote', `${ot.campo||'—'}${ot.lote?' · '+ot.lote:''}`],
-    ['📅 Fecha',fmt(ot.fecha)],
+  // Info grid — 2 columns, clean layout
+  const infoY=112;
+  const infos=[
+    {lbl:'📍 Campo / Lote', val:`${ot.campo||'—'}${ot.lote?' · '+ot.lote:''}`, x:20, y:infoY},
+    {lbl:'📅 Fecha',        val:fmt(ot.fecha),                                   x:20, y:infoY+30},
+    {lbl:'🌾 Hectáreas',   val:ot.hectareas?ot.hectareas+' ha':'—',             x:340, y:infoY},
+    {lbl:'👤 Responsable', val:ot.responsable||'—',                              x:340, y:infoY+30},
   ];
-  const col2=[
-    ['🌾 Hectáreas',ot.hectareas?ot.hectareas+' ha':'—'],
-    ['👤 Responsable',ot.responsable||'—'],
-  ];
-  let y=116;
-  col1.forEach(([lbl,val],i)=>{
-    const x=20+(i===0?0:0);
+  infos.forEach(({lbl,val,x,y})=>{
     cx.fillStyle='#8B9E8C'; cx.font='10px sans-serif';
-    cx.fillText(lbl,20+i*310,y);
+    cx.fillText(lbl,x,y);
     cx.fillStyle='#FFFFFF'; cx.font='bold 13px sans-serif';
-    cx.fillText(val,20+i*310,y+14);
-  });
-  col2.forEach(([lbl,val],i)=>{
-    cx.fillStyle='#8B9E8C'; cx.font='10px sans-serif';
-    cx.fillText(lbl,330,y+i*24);
-    cx.fillStyle='#FFFFFF'; cx.font='bold 13px sans-serif';
-    cx.fillText(val,330,y+i*24+14);
+    cx.fillText(val.length>28?val.slice(0,26)+'…':val,x,y+14);
   });
 
   // Table header
@@ -2170,15 +2173,29 @@ function addManualRow(){
   const i=manualRowCount++;
   const div=document.createElement('div');
   div.className='fr';
-  div.style.cssText='gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:flex-end';
+  div.style.cssText='gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:flex-end;background:#F9F9F9;border:1px solid #EEE;border-radius:8px;padding:10px';
   div.innerHTML=`
-    <div class="fg" style="min-width:160px"><label>Insumo</label>
-      <select id="manual-ins-${i}" style="width:100%">
+    <div class="fg" style="min-width:160px">
+      <label>Insumo</label>
+      <select id="manual-ins-${i}" style="width:100%" onchange="this.nextElementSibling.style.display='none'">
         <option value="">— Seleccionar —</option>
         ${DB.insumos.map(ins=>`<option value="${ins.id}">${ins.nombre} (${ins.unidad})</option>`).join('')}
       </select>
+      <input type="text" id="manual-ins-txt-${i}" placeholder="O escribí el nombre del producto..."
+        style="display:none;margin-top:4px;border:1.5px solid var(--sky);border-radius:5px;padding:6px 8px;font-size:13px;width:100%;box-sizing:border-box">
+      <button type="button" onclick="
+        const sel=document.getElementById('manual-ins-${i}');
+        const txt=document.getElementById('manual-ins-txt-${i}');
+        const isManual=txt.style.display!=='none';
+        sel.style.display=isManual?'':'none';
+        txt.style.display=isManual?'none':'block';
+        this.textContent=isManual?'✏ No está en la lista → escribir manualmente':'← Volver al selector';
+      " style="margin-top:4px;font-size:11px;color:var(--sky);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">
+        ✏ No está en la lista → escribir manualmente
+      </button>
     </div>
     <div class="fgsm"><label>Cantidad</label><input type="number" id="manual-cant-${i}" min="0" step="0.01" placeholder="0"></div>
+    <div class="fgsm"><label>Unidad</label><input type="text" id="manual-unit-${i}" placeholder="lts, kg..." value="lts"></div>
     <div class="fgsm"><label>Proveedor</label><input type="text" id="manual-prov-${i}" placeholder="Opcional"></div>
     <div class="fgsm"><label>N° Remito</label><input type="text" id="manual-rem-${i}" placeholder="Opcional"></div>
     <div style="align-self:flex-end"><button class="btn btn-warn btn-sm" onclick="this.closest('.fr').remove()">✕</button></div>`;
@@ -2186,22 +2203,49 @@ function addManualRow(){
 }
 function confirmarRemitoManual(){
   let count=0;
-  document.querySelectorAll('[id^="manual-ins-"]').forEach((sel,idx)=>{
-    const insId=sel.value;
-    if(!insId)return;
-    const cantEl=document.getElementById(sel.id.replace('ins','cant'));
-    const provEl=document.getElementById(sel.id.replace('ins','prov'));
-    const remEl=document.getElementById(sel.id.replace('ins','rem'));
-    const cant=parseFloat(cantEl?.value)||0;
-    if(cant<=0)return;
-    const ins=DB.insumos.find(i=>i.id===insId);
-    if(!ins)return;
-    ins.stock+=cant;
-    DB.movimientos.push({
-      id:uid(),fecha:today(),insumoId:ins.id,
-      tipo:'entrada',cantidad:cant,
-      nota:`Manual · ${provEl?.value||'Sin proveedor'}${remEl?.value?' · Remito '+remEl.value:''}`
-    });
+  document.querySelectorAll('[id^="manual-ins-"]').forEach((sel)=>{
+    const idx=sel.id.replace('manual-ins-','');
+    const txtEl=document.getElementById('manual-ins-txt-'+idx);
+    const cantEl=document.getElementById('manual-cant-'+idx);
+    const unitEl=document.getElementById('manual-unit-'+idx);
+    const provEl=document.getElementById('manual-prov-'+idx);
+    const remEl=document.getElementById('manual-rem-'+idx);
+    if(!cantEl) return;
+    const cant=parseFloat(cantEl.value)||0;
+    if(cant<=0) return;
+
+    const isManual=txtEl&&txtEl.style.display!=='none';
+    const insId=isManual?'':sel.value;
+    const nombreManual=isManual?txtEl.value.trim():'';
+
+    if(!insId&&!nombreManual) return;
+
+    if(insId){
+      // Known insumo — update stock
+      const ins=DB.insumos.find(i=>i.id===insId);
+      if(!ins) return;
+      ins.stock+=cant;
+      DB.movimientos.push({
+        id:uid(),fecha:today(),insumoId:ins.id,
+        tipo:'entrada',cantidad:cant,
+        nota:`Manual · ${provEl?.value||'Sin proveedor'}${remEl?.value?' · Remito '+remEl.value:''}`
+      });
+    } else {
+      // Unknown product — add to stock as new insumo
+      const newId='ins_'+nombreManual.toLowerCase().replace(/[^a-z0-9]/g,'_').substring(0,20)+'_'+Date.now();
+      const newIns={
+        id:newId, nombre:nombreManual,
+        activo:'', tipo:'herbicida',
+        unidad:unitEl?.value||'lts',
+        stock:cant, stockMin:0
+      };
+      DB.insumos.push(newIns);
+      DB.movimientos.push({
+        id:uid(),fecha:today(),insumoId:newId,
+        tipo:'entrada',cantidad:cant,
+        nota:`Manual · ${provEl?.value||'Sin proveedor'}${remEl?.value?' · Remito '+remEl.value:''}`
+      });
+    }
     cantEl.value='';
     count++;
   });
@@ -2211,7 +2255,7 @@ function confirmarRemitoManual(){
 }
 
 // ── Notion Integration ──
-const NOTION_DB='23322523-eef3-81b7-a96e-0003b60ee0c3';
+const NOTION_DB='31022523-eef3-809c-bcc3-c73edcf3e17c';
 let notionItems=[];
 
 async function importarNotion(){
@@ -2235,16 +2279,25 @@ async function importarNotion(){
       const img=new Image();
       img.onload=img.onerror=()=>resolve();
       img.src=GS_URL+'?action=notion&jobId='+jobId+'&db='+NOTION_DB+'&v='+Date.now();
-      setTimeout(resolve,3000);
+      setTimeout(resolve,5000);
     });
 
-    // Poll Sheets for result
+    // Poll Sheets for result — wait up to 60s (Notion + Sheets write can be slow)
     const sheetUrl=`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/notion_results!A1?key=${SHEETS_API_KEY}`;
     let data=null;
-    for(let i=0;i<15;i++){
-      await new Promise(r=>setTimeout(r,2000));
+
+    // Show progress while waiting
+    document.getElementById('notion-loading').innerHTML=`
+      <span style="font-size:28px">🌀</span>
+      <div style="margin-top:8px;font-size:13px;color:var(--soil)">
+        Consultando Notion...<br>
+        <small style="color:var(--clay)">Puede tardar hasta 30 segundos</small>
+      </div>`;
+
+    for(let i=0;i<20;i++){
+      await new Promise(r=>setTimeout(r,3000));
       try{
-        const res=await fetch(sheetUrl);
+        const res=await fetch(sheetUrl+'&t='+Date.now());
         if(res.ok){
           const d=await res.json();
           const raw=d.values?.[0]?.[0];
