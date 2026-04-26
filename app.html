@@ -781,15 +781,9 @@ async function syncToSheets(){
     const json=JSON.stringify(toSave);
     console.log('Sync payload:',json.length,'chars');
 
-    // Write via img tag — bypasses CORB (browsers don't block img cross-origin)
-    // Apps Script receives the GET and saves data regardless of response type
-    await new Promise((resolve)=>{
-      const img=new Image();
-      img.onload=()=>resolve();
-      img.onerror=()=>resolve(); // always resolve — Apps Script saved even if img fails
-      img.src=GS_URL+'?action=save&data='+encodeURIComponent(json)+'&v='+Date.now();
-      setTimeout(resolve, 5000); // timeout fallback
-    });
+    // Use fetch with no-cors — Apps Script receives GET, browser can't read response but data arrives
+    const url=GS_URL+'?action=save&data='+encodeURIComponent(json)+'&v='+Date.now();
+    await fetch(url, {mode:'no-cors'}).catch(()=>{});
 
     setSyncStatus('saved');
     setTimeout(()=>setSyncStatus('idle'),3000);
@@ -1629,13 +1623,31 @@ function renderOperario(){
   }).join('');
 }
 
-function marcarRealizada(id){
+async function marcarRealizada(id){
   const o=DB.ots.find(x=>x.id===id);
   if(!o)return;
   if(!confirm(`¿Marcar la tarea "${o.nombre||'OT #'+o.numero}" como Realizada?\n\nEsto le avisa al ingeniero/admin que puede confirmar y descontar el stock.`))return;
   o.estado='realizada';
   o.avance=100;
-  save();renderOperario();
+  save();
+  renderOperario();
+
+  // Sync immediately and show feedback
+  try{
+    await syncToSheets();
+    // Show brief confirmation
+    const msg=document.createElement('div');
+    msg.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2C5F2E;color:white;padding:12px 24px;border-radius:8px;font-weight:600;z-index:9999;font-size:14px';
+    msg.textContent='✅ Tarea marcada y guardada en la nube';
+    document.body.appendChild(msg);
+    setTimeout(()=>msg.remove(),3000);
+  }catch(e){
+    const msg=document.createElement('div');
+    msg.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#C0392B;color:white;padding:12px 24px;border-radius:8px;font-weight:600;z-index:9999;font-size:13px;max-width:300px;text-align:center';
+    msg.textContent='⚠ Marcada localmente. Avisale al ingeniero para confirmar manualmente.';
+    document.body.appendChild(msg);
+    setTimeout(()=>msg.remove(),5000);
+  }
 }
 
 function saveAvance(id){
