@@ -906,7 +906,20 @@ async function initApp(){
   // ── STEP 1: Reset insumos from SEED (authoritative stock list) ──
   const oldStockMin={};
   (DB.insumos||[]).forEach(i=>{if(i.stockMin>0)oldStockMin[i.id]=i.stockMin;});
-  DB.insumos=SEED.insumos.map(s=>({...s,stockMin:oldStockMin[s.id]||0}));
+  // Keep manually added insumos (those not in SEED)
+  const seedIds=new Set(SEED.insumos.map(s=>s.id));
+  const manualInsumos=(DB.insumos||[]).filter(i=>!seedIds.has(i.id));
+  DB.insumos=[...SEED.insumos.map(s=>({...s,stockMin:oldStockMin[s.id]||0})),...manualInsumos];
+
+  // ── STEP 1b: Replay all movements on top of SEED stock ──
+  // Reset manual insumos to 0 first, then replay all movements
+  manualInsumos.forEach(i=>{ i.stock=0; });
+  (DB.movimientos||[]).forEach(m=>{
+    const ins=DB.insumos.find(i=>i.id===m.insumoId);
+    if(!ins) return;
+    if(m.tipo==='ingreso'||m.tipo==='entrada') ins.stock+=m.cantidad;
+    else if(m.tipo==='egreso'||m.tipo==='salida') ins.stock=Math.max(0,ins.stock-m.cantidad);
+  });
 
   // ── STEP 2: Remap old OT insumo IDs to new ones ──
   const idRemap={
